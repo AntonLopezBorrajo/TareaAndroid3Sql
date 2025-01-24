@@ -1,2 +1,2 @@
-Aplicacion base de tabla de ejercicios
-Añadi tags para avisar de ciertas situaciones, condigure el manifest.xml para cambiar ciertos apartados de la app como la horientacion permanente de pantalla
+Aplicacion tabla de ejercicios
+Use SQLite, para crear una base de datos con 2 ejercicios de gimnasio, y añadi la capacidad de añadir mas, elemininarlo o modificarlos de la base de datos con botones, manteniendo los cambiado para la próxima vez< que se abra la app, excepto si se borra y cierra sin nada en la base, ahí se añaden los 2 ejercicios base de nuevo.
