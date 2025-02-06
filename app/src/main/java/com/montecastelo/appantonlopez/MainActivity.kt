@@ -1,9 +1,5 @@
 package com.montecastelo.appantonlopez
 
-import android.content.ContentValues
-import android.content.Context
-import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,105 +11,50 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModelProvider
+import androidx.room.Room
+import com.montecastelo.appantonlopez.data.Ejercicios
+import com.montecastelo.appantonlopez.data.EjerciciosDB
+import com.montecastelo.appantonlopez.viewmodel.EjerciciosViewModel
+import com.montecastelo.appantonlopez.viewmodel.EjerciciosViewModelFactory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
-    private val databaseHelper by lazy { ExerciseDatabaseHelper(this) }
+    private lateinit var database: EjerciciosDB
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Inicializar la base de datos Room
+        database = Room.databaseBuilder(
+            applicationContext,
+            EjerciciosDB::class.java,
+            "EjerciciosBasesDatos"
+        ).build()
 
-        if (databaseHelper.getAllExercises().isEmpty()) {
-            databaseHelper.addExercise("Flexiones")
-            databaseHelper.addExercise("Peso muerto")
-        }
+        // Crear el ViewModel usando el Factory
+        val viewModelFactory = EjerciciosViewModelFactory(database.EjerciciosBase())
+        val ejerciciosViewModel = ViewModelProvider(this, viewModelFactory).get(EjerciciosViewModel::class.java)
 
         setContent {
-            MainScreen(databaseHelper)
+            MainScreen(ejerciciosViewModel)
         }
     }
 }
-
-// Base de datos SQLite
-class ExerciseDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
-
-    companion object {
-        private const val DATABASE_NAME = "exercises.db"
-        private const val DATABASE_VERSION = 1
-        private const val TABLE_EXERCISES = "exercises"
-        private const val COLUMN_ID = "id"
-        private const val COLUMN_NAME = "name"
-    }
-
-    override fun onCreate(db: SQLiteDatabase) {
-        val createTableQuery = """
-            CREATE TABLE $TABLE_EXERCISES (
-                $COLUMN_ID INTEGER PRIMARY KEY AUTOINCREMENT,
-                $COLUMN_NAME TEXT NOT NULL
-            )
-        """
-        db.execSQL(createTableQuery)
-    }
-
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_EXERCISES")
-        onCreate(db)
-    }
-
-    fun addExercise(name: String) {
-        val db = writableDatabase
-        val values = ContentValues().apply {
-            put(COLUMN_NAME, name)
-        }
-        db.insert(TABLE_EXERCISES, null, values)
-        db.close()
-    }
-
-    fun getAllExercises(): List<String> {
-        val exercises = mutableListOf<String>()
-        val db = readableDatabase
-        val cursor = db.query(TABLE_EXERCISES, arrayOf(COLUMN_NAME), null, null, null, null, null)
-        if (cursor.moveToFirst()) {
-            do {
-                exercises.add(cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_NAME)))
-            } while (cursor.moveToNext())
-        }
-        cursor.close()
-        db.close()
-        return exercises
-    }
-
-    fun updateExercise(oldName: String, newName: String) {
-        val db = writableDatabase
-        val values = ContentValues().apply {
-            put(COLUMN_NAME, newName)
-        }
-        db.update(TABLE_EXERCISES, values, "$COLUMN_NAME = ?", arrayOf(oldName))
-        db.close()
-    }
-
-    fun deleteExercise(name: String) {
-        val db = writableDatabase
-        db.delete(TABLE_EXERCISES, "$COLUMN_NAME = ?", arrayOf(name))
-        db.close()
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(databaseHelper: ExerciseDatabaseHelper) {
-    val exercises = remember { mutableStateListOf<String>().apply { addAll(databaseHelper.getAllExercises()) } }
+fun MainScreen(viewModel: EjerciciosViewModel) {
+    val ejercicios by viewModel.ejercicios.collectAsState()
+
     var showDialog by remember { mutableStateOf(false) }
     var currentExercise by remember { mutableStateOf("") }
     var newExerciseName by remember { mutableStateOf("") }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Automonitor") }
-            )
-        },
+        topBar = { TopAppBar(title = { Text("Automonitor") }) },
         content = { padding ->
             Column(
                 modifier = Modifier
@@ -125,27 +66,20 @@ fun MainScreen(databaseHelper: ExerciseDatabaseHelper) {
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(exercises) { item ->
+                    items(ejercicios) { item ->
                         ListItem(
-                            text = item,
-                            onDelete = {
-                                databaseHelper.deleteExercise(item)
-                                exercises.remove(item)
-                            },
+                            text = item.nombre,
+                            onDelete = { viewModel.eliminarEjercicio(item.nombre) },
                             onEdit = {
-                                currentExercise = item
-                                newExerciseName = item
+                                currentExercise = item.nombre
+                                newExerciseName = item.nombre
                                 showDialog = true
                             }
                         )
                     }
                     item {
                         Button(
-                            onClick = {
-                                val newExercise = "Nuevo"
-                                databaseHelper.addExercise(newExercise)
-                                exercises.add(newExercise)
-                            },
+                            onClick = { viewModel.agregarEjercicio("Nuevo") },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(8.dp)
@@ -173,11 +107,7 @@ fun MainScreen(databaseHelper: ExerciseDatabaseHelper) {
                     },
                     confirmButton = {
                         Button(onClick = {
-                            databaseHelper.updateExercise(currentExercise, newExerciseName)
-                            val index = exercises.indexOf(currentExercise)
-                            if (index != -1) {
-                                exercises[index] = newExerciseName
-                            }
+                            viewModel.actualizarEjercicio(currentExercise, newExerciseName)
                             showDialog = false
                         }) {
                             Text("Guardar")
@@ -209,25 +139,12 @@ fun ListItem(text: String, onDelete: () -> Unit, onEdit: () -> Unit) {
                 .padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = text,
-                fontSize = 14.sp
-            )
+            Text(text = text, fontSize = 14.sp)
             Row {
-                Button(onClick = onEdit) {
-                    Text("Editar")
-                }
+                Button(onClick = onEdit) { Text("Editar") }
                 Spacer(modifier = Modifier.width(8.dp))
-                Button(onClick = onDelete) {
-                    Text("Eliminar")
-                }
+                Button(onClick = onDelete) { Text("Eliminar") }
             }
         }
     }
 }
-
-
-
-
-
-
